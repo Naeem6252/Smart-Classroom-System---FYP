@@ -26,8 +26,8 @@ AI-enabled smart classroom platform built with Next.js for:
 ### Clone and Run
 
 ```bash
-git clone https://github.com/MirzaSajid/smart-classroom-system-.git
-cd smart-classroom-system-
+git clone https://github.com/Naeem6252/Smart-Classroom-System---FYP.git
+cd Smart-Classroom-System---FYP
 npm install
 npm run dev
 ```
@@ -189,10 +189,4 @@ npm run start
 - This app currently relies on browser local state for some UI data and SQLite for backend records.
 - If you run in a fresh environment, create initial data from Admin dashboard first.
 - Keep `data/` writable on your machine for SQLite updates.
-
----
-
-## 9) Repository
-
-- Remote: [https://github.com/MirzaSajid/smart-classroom-system-.git](https://github.com/MirzaSajid/smart-classroom-system-.git)
 
