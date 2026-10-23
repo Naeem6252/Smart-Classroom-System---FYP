@@ -8,9 +8,10 @@ export type AttendanceSettings = {
 }
 
 const STORAGE_KEY = "attendanceSettings"
+export const ATTENDANCE_SETTINGS_EVENT = "attendance-settings-updated"
 
 export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettings = {
-  confidenceThreshold: 0.7,
+  confidenceThreshold: 0.75,
   autoMarkAfterMinutes: 10,
   detectionIntervalMs: 1800,
 }
@@ -60,6 +61,7 @@ export function saveAttendanceSettings(next: AttendanceSettings) {
   if (typeof window === "undefined") return
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitize(next)))
+    window.dispatchEvent(new CustomEvent(ATTENDANCE_SETTINGS_EVENT, { detail: sanitize(next) }))
   } catch {
     // ignore
   }

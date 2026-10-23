@@ -18,6 +18,7 @@ interface Student {
   password: string
   rollNumber: string
   classIds: string[]
+  sectionAssignments?: Record<string, string>
   parentContact: string
 }
 
@@ -51,14 +52,49 @@ interface AdminData {
   teachers: Teacher[]
 }
 
-export function AdminDataManager() {
-  const [activeTab, setActiveTab] = useState<'faculty' | 'classes' | 'sections' | 'students' | 'reports' | 'todaysclasses' | 'analytics' | 'enrollment' | 'cameras' | 'facial'>('faculty')
+export type AdminDataManagerTab =
+  | 'faculty'
+  | 'classes'
+  | 'sections'
+  | 'students'
+  | 'reports'
+  | 'todaysclasses'
+  | 'analytics'
+  | 'enrollment'
+  | 'cameras'
+  | 'facial'
+
+type AdminDataManagerInlineProps = {
+  navigation?: 'inline'
+}
+
+type AdminDataManagerSidebarProps = {
+  navigation: 'none'
+  tab: AdminDataManagerTab
+  onTabChange: (tab: AdminDataManagerTab) => void
+}
+
+export type AdminDataManagerProps = AdminDataManagerInlineProps | AdminDataManagerSidebarProps
+
+export function AdminDataManager(props: AdminDataManagerProps) {
+  const isSidebarMode = props.navigation === 'none'
+  const [internalTab, setInternalTab] = useState<AdminDataManagerTab>('faculty')
+  const activeTab = isSidebarMode ? props.tab : internalTab
+
+  const setActiveTab = (tab: AdminDataManagerTab) => {
+    if (isSidebarMode) {
+      props.onTabChange(tab)
+    } else {
+      setInternalTab(tab)
+    }
+  }
   const [classes, setClasses] = useState<ClassData[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [editingClass, setEditingClass] = useState<ClassData | null>(null)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
   const [selectedClassId, setSelectedClassId] = useState<string>('')
+  const [newStudentSectionId, setNewStudentSectionId] = useState<string>('')
 
   const [newClass, setNewClass] = useState({
     name: '',
@@ -102,6 +138,10 @@ export function AdminDataManager() {
         const migratedStudents = loadedStudents.map((student: any) => ({
           ...student,
           classIds: student.classIds || (student.classId ? [student.classId] : []),
+          sectionAssignments:
+            student.sectionAssignments && typeof student.sectionAssignments === "object"
+              ? student.sectionAssignments
+              : {},
         }))
         
         console.log('[v0] Loaded', loadedClasses.length, 'classes and', migratedStudents.length, 'students')
@@ -223,6 +263,9 @@ export function AdminDataManager() {
         .map((s) => ({
           ...s,
           classIds: (s.classIds || []).filter((cid) => cid !== id),
+          sectionAssignments: Object.fromEntries(
+            Object.entries(s.sectionAssignments || {}).filter(([classId]) => classId !== id),
+          ),
         }))
         .filter((s) => s.classIds && s.classIds.length > 0) // Remove students with no courses
       
@@ -292,6 +335,7 @@ export function AdminDataManager() {
       password: newStudent.password || 'student123',
       rollNumber: newStudent.rollNumber,
       classIds: [classId],
+      sectionAssignments: newStudentSectionId ? { [classId]: newStudentSectionId } : {},
       parentContact: newStudent.parentContact,
     }]
     setStudents(updatedStudents)
@@ -306,6 +350,7 @@ export function AdminDataManager() {
     setClasses(updatedClasses)
     saveData(updatedClasses, updatedStudents)
     setNewStudent({ studentId: '', name: '', email: '', password: 'student123', rollNumber: '', parentContact: '' })
+    setNewStudentSectionId('')
   }
 
   const deleteStudent = (studentId: string) => {
@@ -374,89 +419,90 @@ export function AdminDataManager() {
         </Button>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex gap-2 border-b border-border mb-6 overflow-x-auto">
-        <Button
-          variant={activeTab === 'faculty' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('faculty')}
-          className="gap-2"
-        >
-          <Users className="w-4 h-4" />
-          Faculty
-        </Button>
-        <Button
-          variant={activeTab === 'classes' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('classes')}
-          className="gap-2"
-        >
-          <BookOpen className="w-4 h-4" />
-          Manage Classes
-        </Button>
-        <Button
-          variant={activeTab === 'sections' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('sections')}
-          className="gap-2"
-        >
-          <Users className="w-4 h-4" />
-          Manage Sections
-        </Button>
-        <Button
-          variant={activeTab === 'students' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('students')}
-          className="gap-2"
-        >
-          <Users className="w-4 h-4" />
-          Manage Students
-        </Button>
-        <Button
-          variant={activeTab === 'enrollment' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('enrollment')}
-          className="gap-2"
-        >
-          <Users className="w-4 h-4" />
-          Course Enrollment
-        </Button>
-        <Button
-          variant={activeTab === 'todaysclasses' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('todaysclasses')}
-          className="gap-2"
-        >
-          <BookOpen className="w-4 h-4" />
-          Today's Classes
-        </Button>
-        <Button
-          variant={activeTab === 'facial' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('facial')}
-          className="gap-2"
-        >
-          <Smile className="w-4 h-4" />
-          Facial Recognition
-        </Button>
-        <Button
-          variant={activeTab === 'cameras' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('cameras')}
-          className="gap-2"
-        >
-          <Video className="w-4 h-4" />
-          Camera Setup
-        </Button>
-        <Button
-          variant={activeTab === 'analytics' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('analytics')}
-          className="gap-2"
-        >
-          <BarChart3 className="w-4 h-4" />
-          Student Analytics
-        </Button>
-        <Button
-          variant={activeTab === 'reports' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('reports')}
-          className="gap-2"
-        >
-          <FileText className="w-4 h-4" />
-          Reports
-        </Button>
-      </div>
+      {!isSidebarMode ? (
+        <div className="flex gap-2 border-b border-border mb-6 overflow-x-auto">
+          <Button
+            variant={activeTab === 'faculty' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('faculty')}
+            className="gap-2"
+          >
+            <Users className="w-4 h-4" />
+            Faculty
+          </Button>
+          <Button
+            variant={activeTab === 'classes' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('classes')}
+            className="gap-2"
+          >
+            <BookOpen className="w-4 h-4" />
+            Manage Classes
+          </Button>
+          <Button
+            variant={activeTab === 'sections' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('sections')}
+            className="gap-2"
+          >
+            <Users className="w-4 h-4" />
+            Manage Sections
+          </Button>
+          <Button
+            variant={activeTab === 'students' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('students')}
+            className="gap-2"
+          >
+            <Users className="w-4 h-4" />
+            Manage Students
+          </Button>
+          <Button
+            variant={activeTab === 'enrollment' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('enrollment')}
+            className="gap-2"
+          >
+            <Users className="w-4 h-4" />
+            Course Enrollment
+          </Button>
+          <Button
+            variant={activeTab === 'todaysclasses' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('todaysclasses')}
+            className="gap-2"
+          >
+            <BookOpen className="w-4 h-4" />
+            Today's Classes
+          </Button>
+          <Button
+            variant={activeTab === 'facial' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('facial')}
+            className="gap-2"
+          >
+            <Smile className="w-4 h-4" />
+            Facial Recognition
+          </Button>
+          <Button
+            variant={activeTab === 'cameras' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('cameras')}
+            className="gap-2"
+          >
+            <Video className="w-4 h-4" />
+            Camera Setup
+          </Button>
+          <Button
+            variant={activeTab === 'analytics' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('analytics')}
+            className="gap-2"
+          >
+            <BarChart3 className="w-4 h-4" />
+            Student Analytics
+          </Button>
+          <Button
+            variant={activeTab === 'reports' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('reports')}
+            className="gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            Reports
+          </Button>
+        </div>
+      ) : null}
 
       {/* FACULTY TAB */}
       {activeTab === 'faculty' && (
@@ -779,7 +825,10 @@ export function AdminDataManager() {
             <h3 className="text-lg font-semibold text-foreground mb-4">Select Class to Add Students</h3>
             <select
               value={selectedClassId}
-              onChange={(e) => setSelectedClassId(e.target.value)}
+              onChange={(e) => {
+                setSelectedClassId(e.target.value)
+                setNewStudentSectionId('')
+              }}
               className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
             >
               <option value="">Choose a class...</option>
@@ -821,6 +870,18 @@ export function AdminDataManager() {
                   value={newStudent.parentContact}
                   onChange={(e) => setNewStudent({ ...newStudent, parentContact: e.target.value })}
                 />
+                <select
+                  value={newStudentSectionId}
+                  onChange={(e) => setNewStudentSectionId(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value="">Select section (optional)</option>
+                  {(getSelectedClass()?.sections || []).map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.name}
+                    </option>
+                  ))}
+                </select>
                 <div className="p-3 bg-primary/10 rounded border border-primary/20">
                   <p className="text-xs text-foreground/70">
                     <span className="font-semibold">Default Password:</span> {newStudent.password}
@@ -935,6 +996,50 @@ export function AdminDataManager() {
                           })}
                         </div>
                       </div>
+
+                      {(student.classIds || []).length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-foreground">Section Assignment</p>
+                          {(student.classIds || []).map((classId) => {
+                            const course = classes.find((c) => c.id === classId)
+                            const sections = course?.sections || []
+                            const currentValue = (student.sectionAssignments || {})[classId] || ""
+                            return (
+                              <div key={`sec-${student.id}-${classId}`} className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div className="text-sm text-foreground/70 self-center">
+                                  {course?.name || "Unknown Course"}
+                                </div>
+                                <select
+                                  value={currentValue}
+                                  onChange={(e) => {
+                                    const sectionId = e.target.value
+                                    const updatedStudents = students.map((s) => {
+                                      if (s.id !== student.id) return s
+                                      return {
+                                        ...s,
+                                        sectionAssignments: {
+                                          ...(s.sectionAssignments || {}),
+                                          [classId]: sectionId,
+                                        },
+                                      }
+                                    })
+                                    setStudents(updatedStudents)
+                                    saveData(classes, updatedStudents)
+                                  }}
+                                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                                >
+                                  <option value="">Unassigned section</option>
+                                  {sections.map((sec: any) => (
+                                    <option key={sec.id} value={sec.id}>
+                                      {sec.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : null}
                       
                       <div className="space-y-2">
                         <p className="text-sm font-medium text-foreground">Add to Courses</p>
@@ -948,13 +1053,17 @@ export function AdminDataManager() {
                                 size="sm"
                                 onClick={() => {
                                   const currentIds = [...(student.classIds || [])]
+                                  const currentAssignments = { ...(student.sectionAssignments || {}) }
                                   if (currentIds.includes(course.id)) {
                                     student.classIds = currentIds.filter(id => id !== course.id)
+                                    delete currentAssignments[course.id]
                                   } else {
                                     currentIds.push(course.id)
                                     student.classIds = currentIds
                                   }
+                                  student.sectionAssignments = currentAssignments
                                   const updatedStudents = [...students]
+                                  setStudents(updatedStudents)
                                   saveData(classes, updatedStudents)
                                 }}
                               >

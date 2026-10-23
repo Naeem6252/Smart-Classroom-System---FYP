@@ -10,16 +10,19 @@ import { LoginPage } from "@/components/login-page"
 import { LocalStorageSync } from "@/components/persistence/local-storage-sync"
 
 type UserRole = "admin" | "teacher" | "security" | "student"
-type StudentSection = "overview" | "academic" | "fees"
+type StudentSection = "overview" | "academic" | "fees" | "attendance" | "courses" | "announcements"
+type TeacherSection = "overview" | "attendance" | "dataset" | "grades" | "students" | "schedule"
 
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentRole, setCurrentRole] = useState<UserRole>("admin")
   const [studentSection, setStudentSection] = useState<StudentSection>("overview")
+  const [teacherSection, setTeacherSection] = useState<TeacherSection>("attendance")
 
   const handleLogin = (role: UserRole) => {
     setCurrentRole(role)
     setStudentSection("overview")
+    setTeacherSection("attendance")
     setIsLoggedIn(true)
     // Store login time for session management
     localStorage.setItem('loginTime', new Date().toISOString())
@@ -29,6 +32,7 @@ export default function Home() {
     setIsLoggedIn(false)
     setCurrentRole("admin")
     setStudentSection("overview")
+    setTeacherSection("attendance")
     localStorage.removeItem('currentUser')
     localStorage.removeItem('loginTime')
   }
@@ -55,6 +59,7 @@ export default function Home() {
   const handleRoleChange = (role: UserRole) => {
     setCurrentRole(role)
     if (role !== "student") setStudentSection("overview")
+    if (role !== "teacher") setTeacherSection("attendance")
   }
 
   const renderDashboard = () => {
@@ -62,7 +67,7 @@ export default function Home() {
       case "admin":
         return <AdminDashboard />
       case "teacher":
-        return <TeacherPortal />
+        return <TeacherPortal activeSection={teacherSection} />
       case "security":
         return <SecurityDashboard />
       case "student":
@@ -84,13 +89,15 @@ export default function Home() {
   return (
     <>
       <LocalStorageSync />
-      <div className="flex h-svh overflow-hidden bg-gradient-to-br from-background via-background to-primary/10">
+      <div className="flex h-svh overflow-hidden bg-linear-to-br from-background via-background to-primary/10">
         <Navigation
           currentRole={currentRole}
           onRoleChange={handleRoleChange}
           onLogout={handleLogout}
           activeStudentSection={studentSection}
           onStudentSectionChange={setStudentSection}
+          activeTeacherSection={teacherSection}
+          onTeacherSectionChange={setTeacherSection}
         />
         <main className="flex-1 overflow-auto">
           <div className="p-6 lg:p-8">{renderDashboard()}</div>

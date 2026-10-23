@@ -164,7 +164,6 @@ export function AttendanceMarking({ students, onStatusChange, sessionActive, tim
                     variant={student.status === "present" ? "default" : "outline"}
                     size="sm"
                     className="w-10 h-10 p-0"
-                    disabled={!sessionActive}
                     title="Mark Present"
                   >
                     <Check className="w-4 h-4" />
@@ -174,7 +173,6 @@ export function AttendanceMarking({ students, onStatusChange, sessionActive, tim
                     variant={student.status === "late" ? "default" : "outline"}
                     size="sm"
                     className="w-10 h-10 p-0"
-                    disabled={!sessionActive}
                     title="Mark Late"
                   >
                     <Clock className="w-4 h-4" />
@@ -184,7 +182,6 @@ export function AttendanceMarking({ students, onStatusChange, sessionActive, tim
                     variant={student.status === "absent" ? "default" : "outline"}
                     size="sm"
                     className="w-10 h-10 p-0"
-                    disabled={!sessionActive}
                     title="Mark Absent"
                   >
                     <X className="w-4 h-4" />

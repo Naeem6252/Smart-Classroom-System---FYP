@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   CheckCircle,
   Clock,
@@ -54,6 +55,66 @@ function weekdayName(d: Date) {
 function parseRecordDate(dateStr: string): Date {
   const [y, m, day] = dateStr.split("-").map(Number)
   return new Date(y, (m || 1) - 1, day || 1)
+}
+
+/** present + late count as attended for the percentage bar. */
+function countAttendanceStats(rows: { status?: string }[]) {
+  let presentLike = 0
+  for (const r of rows) {
+    const s = String(r.status ?? "").toLowerCase()
+    if (s === "present" || s === "late") presentLike += 1
+  }
+  const total = rows.length
+  const pct = total > 0 ? Math.round((presentLike / total) * 100) : null
+  return { presentLike, total, pct }
+}
+
+/** Tier colors: below 50% red, 50–74% yellow/amber, 75%+ green. */
+function attendanceBarFillClass(pct: number): string {
+  if (pct < 50) return "bg-red-500"
+  if (pct < 75) return "bg-amber-500"
+  return "bg-emerald-600"
+}
+
+function CourseAttendanceBarRow({
+  presentCount,
+  totalSessions,
+}: {
+  presentCount: number
+  totalSessions: number
+}) {
+  const pct = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : null
+  const fillClass =
+    pct === null ? "bg-foreground/25" : attendanceBarFillClass(pct)
+
+  return (
+    <div className="mt-3 space-y-1.5 w-full">
+      <div className="flex items-center justify-between gap-2 text-xs text-foreground/70">
+        <span>Attendance</span>
+        <span className="tabular-nums font-medium text-foreground">
+          {pct === null ? "—" : `${pct}%`}
+          {totalSessions > 0 ? (
+            <span className="text-foreground/50 font-normal ml-1">
+              ({presentCount}/{totalSessions})
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <div
+        className="h-2 w-full rounded-full bg-foreground/10 overflow-hidden"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? 0}
+        aria-valuetext={pct === null ? "No sessions recorded" : `${pct}% attendance`}
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${fillClass}`}
+          style={{ width: pct === null ? "0%" : `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
 }
 
 /** Maps course percentage (0–100) to a 4.0 grade point for CGPA (unweighted by credits). */
@@ -128,10 +189,13 @@ function isDateInSemester(d: Date, sem: SemesterWindow) {
 export function StudentPortal({
   activeSection = "overview",
 }: {
-  activeSection?: "overview" | "academic" | "fees"
+  activeSection?: "overview" | "academic" | "fees" | "attendance" | "courses" | "announcements"
 }) {
+  const getInvoiceSeenKey = (studentId: string) => `studentPortal:seenInvoices:${studentId}`
   const [studentData, setStudentData] = useState<any>(null)
   const [attendanceMetrics, setAttendanceMetrics] = useState<any[]>([])
+  /** All attendance rows for the signed-in student (used for per-course bars). */
+  const [studentAttendanceRecords, setStudentAttendanceRecords] = useState<any[]>([])
   const [enrolledCourses, setEnrolledCourses] = useState<EnrolledCourse[]>([])
   const [courseGrades, setCourseGrades] = useState<any[]>([])
   const [thisMonthAttendance, setThisMonthAttendance] = useState(0)
@@ -148,9 +212,13 @@ export function StudentPortal({
   const [selectedCourse, setSelectedCourse] = useState<EnrolledCourse | null>(null)
   const [courseAttendanceRows, setCourseAttendanceRows] = useState<any[]>([])
   const [loadingCourseAttendance, setLoadingCourseAttendance] = useState(false)
+  const [courseDetailTab, setCourseDetailTab] = useState<"attendance" | "marks">("attendance")
   const showAcademicSection = activeSection === "academic"
   const showFeesSection = activeSection === "fees"
   const showOverviewSections = activeSection === "overview"
+  const showAttendanceSection = activeSection === "attendance"
+  const showCoursesSection = activeSection === "courses"
+  const showAnnouncementsSection = activeSection === "announcements"
 
   useEffect(() => {
     const currentUser = localStorage.getItem("currentUser")
@@ -213,6 +281,39 @@ export function StudentPortal({
 
   const pendingInvoices = useMemo(() => myInvoices.filter((i) => i.status !== "paid"), [myInvoices])
   const paidInvoices = useMemo(() => myInvoices.filter((i) => i.status === "paid"), [myInvoices])
+  const [newInvoiceCount, setNewInvoiceCount] = useState(0)
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setNewInvoiceCount(0)
+      return
+    }
+
+    const key = getInvoiceSeenKey(currentUserId)
+    let seenIds = new Set<string>()
+    try {
+      const raw = localStorage.getItem(key)
+      const parsed = raw ? (JSON.parse(raw) as string[]) : []
+      seenIds = new Set((Array.isArray(parsed) ? parsed : []).map(String))
+    } catch {
+      seenIds = new Set<string>()
+    }
+
+    const unseen = myInvoices.filter((i) => !seenIds.has(String(i.id)))
+    setNewInvoiceCount(unseen.length)
+  }, [currentUserId, myInvoices])
+
+  useEffect(() => {
+    if (!showFeesSection || !currentUserId) return
+    const key = getInvoiceSeenKey(currentUserId)
+    const ids = myInvoices.map((i) => String(i.id))
+    try {
+      localStorage.setItem(key, JSON.stringify(ids))
+    } catch {
+      // ignore storage failure
+    }
+    setNewInvoiceCount(0)
+  }, [showFeesSection, currentUserId, myInvoices])
 
   const payInvoice = (invoiceId: string) => {
     const inv = feeInvoices.find((i) => i.id === invoiceId)
@@ -363,7 +464,10 @@ export function StudentPortal({
   )
 
   useEffect(() => {
-    if (!currentUserId) return
+    if (!currentUserId) {
+      setStudentAttendanceRecords([])
+      return
+    }
 
     const adminDataStr = localStorage.getItem("adminData")
     const gradesDataStr = localStorage.getItem("gradesData")
@@ -388,6 +492,7 @@ export function StudentPortal({
         if (!res.ok || !json?.ok || !Array.isArray(json?.data)) throw new Error(json?.error || "Bad response")
 
         const records = json.data
+        setStudentAttendanceRecords(records)
         const today = new Date()
         const currentMonth = today.getMonth()
         const currentYear = today.getFullYear()
@@ -420,6 +525,7 @@ export function StudentPortal({
         try {
           const records = JSON.parse(attendanceRecords)
           const studentAttendance = records.filter((r: any) => r.studentId === currentUserId)
+          setStudentAttendanceRecords(studentAttendance)
           const today = new Date()
           const currentMonth = today.getMonth()
           const currentYear = today.getFullYear()
@@ -454,7 +560,10 @@ export function StudentPortal({
   }, [currentUserId, loadGradesAndCourses])
 
   useEffect(() => {
-    if (!currentUserId) return
+    if (!currentUserId) {
+      setStudentAttendanceRecords([])
+      return
+    }
 
     const refreshAttendanceMetrics = () => {
       ;(async () => {
@@ -464,6 +573,7 @@ export function StudentPortal({
           if (!res.ok || !json?.ok || !Array.isArray(json?.data)) throw new Error(json?.error || "Bad response")
 
           const records = json.data
+          setStudentAttendanceRecords(records)
           const today = new Date()
           const currentMonth = today.getMonth()
           const currentYear = today.getFullYear()
@@ -495,10 +605,11 @@ export function StudentPortal({
           if (!attendanceRecords) return
           try {
             const records = JSON.parse(attendanceRecords)
+            const studentAttendance = records.filter((r: any) => r.studentId === currentUserId)
+            setStudentAttendanceRecords(studentAttendance)
             const today = new Date()
             const currentMonth = today.getMonth()
             const currentYear = today.getFullYear()
-            const studentAttendance = records.filter((r: any) => r.studentId === currentUserId)
 
             const thisMonthCount = studentAttendance.filter((r: any) => {
               const recordDate = new Date(r.date)
@@ -567,8 +678,31 @@ export function StudentPortal({
     return courseGrades.find((c) => c.courseId === selectedCourse.id) || null
   }, [selectedCourse, courseGrades])
 
+  const attendanceRollupByClassId = useMemo(() => {
+    const byClass = new Map<string, { status?: string }[]>()
+    for (const r of studentAttendanceRecords) {
+      const cid = String(r.classId ?? "").trim()
+      if (!cid) continue
+      const bucket = byClass.get(cid)
+      if (bucket) bucket.push(r)
+      else byClass.set(cid, [r])
+    }
+    const stats = new Map<string, { presentLike: number; total: number }>()
+    byClass.forEach((rows, cid) => {
+      const { presentLike, total } = countAttendanceStats(rows)
+      stats.set(cid, { presentLike, total })
+    })
+    return stats
+  }, [studentAttendanceRecords])
+
+  const modalCourseAttendanceStats = useMemo(
+    () => countAttendanceStats(courseAttendanceRows),
+    [courseAttendanceRows],
+  )
+
   const openCourseDetail = (course: EnrolledCourse) => {
     setSelectedCourse(course)
+    setCourseDetailTab("attendance")
     setCourseDialogOpen(true)
   }
 
@@ -664,15 +798,29 @@ export function StudentPortal({
         </Badge>
       </div>
 
+      {newInvoiceCount > 0 ? (
+        <Card variant="glass" className="p-3">
+          <p className="text-sm text-foreground">
+            <span className="font-semibold text-primary">{newInvoiceCount}</span> new invoice
+            {newInvoiceCount === 1 ? "" : "s"} received.
+          </p>
+        </Card>
+      ) : null}
+
       <div className="space-y-8">
         <div className="min-w-0 space-y-8">
           {showFeesSection ? (
             <Card id="fees-invoices" variant="glass" className="p-6">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-foreground">Fees & invoices</p>
-              <Badge variant="outline" className="bg-transparent">
-                {myInvoices.length}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {newInvoiceCount > 0 ? (
+                  <Badge className="text-[10px] h-5 px-2">{newInvoiceCount} new</Badge>
+                ) : null}
+                <Badge variant="outline" className="bg-transparent">
+                  {myInvoices.length}
+                </Badge>
+              </div>
             </div>
             <div className="mt-3 space-y-2">
               {myInvoices.length === 0 ? (
@@ -783,9 +931,9 @@ export function StudentPortal({
               </div>
             </DialogContent>
           </Dialog>
-      {showOverviewSections ? <StudentFacialScanner /> : null}
+      {showOverviewSections || showAttendanceSection ? <StudentFacialScanner /> : null}
 
-      {showOverviewSections ? (
+      {showOverviewSections || showAttendanceSection ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <Card variant="glass" className="p-6">
           <div className="flex items-center gap-4">
@@ -851,7 +999,7 @@ export function StudentPortal({
         </div>
       ) : null}
 
-      {showOverviewSections ? (
+      {showOverviewSections || showCoursesSection ? (
         <Card variant="glass" className="p-6">
         <h3 className="text-lg font-semibold text-foreground mb-4">My enrolled courses</h3>
         <p className="text-sm text-foreground/60 mb-4">
@@ -861,33 +1009,41 @@ export function StudentPortal({
           <p className="text-foreground/60">No courses enrolled yet.</p>
         ) : (
           <div className="space-y-3">
-            {enrolledCourses.map((cls) => (
-              <button
-                key={cls.id}
-                type="button"
-                onClick={() => openCourseDetail(cls)}
-                className="w-full flex items-center justify-between gap-4 p-4 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] backdrop-blur-xl hover:bg-[var(--glass-bg-strong)] hover:border-primary/25 transition-colors text-left"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-foreground">{cls.name}</p>
-                  <p className="text-sm text-foreground/60 mt-1">Teacher: {cls.teacher}</p>
-                  <p className="text-sm text-foreground/80 mt-1">
-                    <Clock className="inline w-3.5 h-3.5 mr-1 align-text-bottom text-primary" />
-                    {cls.scheduleLabel}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge className="bg-primary/20 text-primary">Enrolled</Badge>
-                  <ChevronRight className="w-5 h-5 text-foreground/40" />
-                </div>
-              </button>
-            ))}
+            {enrolledCourses.map((cls) => {
+              const roll = attendanceRollupByClassId.get(cls.id)
+              const presentCount = roll?.presentLike ?? 0
+              const totalSessions = roll?.total ?? 0
+              return (
+                <button
+                  key={cls.id}
+                  type="button"
+                  onClick={() => openCourseDetail(cls)}
+                  className="w-full flex flex-col gap-1 p-4 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] backdrop-blur-xl hover:bg-[var(--glass-bg-strong)] hover:border-primary/25 transition-colors text-left"
+                >
+                  <div className="flex items-start justify-between gap-4 w-full">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground">{cls.name}</p>
+                      <p className="text-sm text-foreground/60 mt-1">Teacher: {cls.teacher}</p>
+                      <p className="text-sm text-foreground/80 mt-1">
+                        <Clock className="inline w-3.5 h-3.5 mr-1 align-text-bottom text-primary" />
+                        {cls.scheduleLabel}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge className="bg-primary/20 text-primary">Enrolled</Badge>
+                      <ChevronRight className="w-5 h-5 text-foreground/40" />
+                    </div>
+                  </div>
+                  <CourseAttendanceBarRow presentCount={presentCount} totalSessions={totalSessions} />
+                </button>
+              )
+            })}
           </div>
         )}
         </Card>
       ) : null}
 
-      {showOverviewSections ? (
+      {showOverviewSections || showAnnouncementsSection ? (
         <Card variant="glass" className="p-6">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-semibold text-foreground">Announcements</p>
@@ -922,7 +1078,7 @@ export function StudentPortal({
         </Card>
       ) : null}
 
-      {showOverviewSections ? (
+      {showOverviewSections || showAttendanceSection ? (
         <Card variant="glass" className="p-6">
         <h3 className="text-lg font-semibold text-foreground mb-4">Attendance history (last 4 months)</h3>
         {attendanceMetrics.length === 0 ? (
@@ -1070,7 +1226,10 @@ export function StudentPortal({
         open={courseDialogOpen}
         onOpenChange={(open) => {
           setCourseDialogOpen(open)
-          if (!open) setSelectedCourse(null)
+          if (!open) {
+            setSelectedCourse(null)
+            setCourseDetailTab("attendance")
+          }
         }}
       >
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -1082,54 +1241,78 @@ export function StudentPortal({
             </p>
           </DialogHeader>
 
-          <div className="space-y-6 pt-2">
-            <div>
-              <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                <BookOpen className="w-4 h-4" />
+          <div className="flex flex-col gap-4 pt-2">
+          <Tabs
+            value={courseDetailTab}
+            onValueChange={(v) => setCourseDetailTab(v as "attendance" | "marks")}
+            className="w-full gap-4"
+          >
+            <TabsList className="w-full grid grid-cols-2 h-auto p-1 rounded-xl bg-muted/80">
+              <TabsTrigger
+                value="attendance"
+                className="rounded-lg gap-2 py-2.5 px-3 text-xs sm:text-sm data-[state=active]:shadow-sm"
+              >
+                <BookOpen className="w-4 h-4 shrink-0" />
                 Attendance
-              </h4>
+              </TabsTrigger>
+              <TabsTrigger
+                value="marks"
+                className="rounded-lg gap-2 py-2.5 px-3 text-xs sm:text-sm data-[state=active]:shadow-sm"
+              >
+                <Award className="w-4 h-4 shrink-0" />
+                Assessment marks
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="attendance" className="mt-0 space-y-3 focus-visible:ring-0">
+              <p className="text-xs text-foreground/55">Attendance rate and daily records for this course.</p>
               {loadingCourseAttendance ? (
                 <p className="text-sm text-foreground/60">Loading attendance…</p>
-              ) : courseAttendanceRows.length === 0 ? (
-                <p className="text-sm text-foreground/60">No attendance records for this course yet.</p>
               ) : (
-                <div className="rounded-md border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40">
-                        <th className="text-left py-2 px-3 font-medium">Date</th>
-                        <th className="text-left py-2 px-3 font-medium">Day</th>
-                        <th className="text-left py-2 px-3 font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {courseAttendanceRows.map((row: any, idx: number) => {
-                        const dateStr = String(row.date || "")
-                        let dayLabel = "—"
-                        try {
-                          if (dateStr) dayLabel = weekdayName(parseRecordDate(dateStr))
-                        } catch {
-                          dayLabel = "—"
-                        }
-                        return (
-                          <tr key={`${row.date}-${idx}`} className="border-b border-border/60 last:border-0">
-                            <td className="py-2 px-3 text-foreground">{dateStr}</td>
-                            <td className="py-2 px-3 text-foreground/80">{dayLabel}</td>
-                            <td className="py-2 px-3 capitalize">{row.status || "—"}</td>
+                <>
+                  <CourseAttendanceBarRow
+                    presentCount={modalCourseAttendanceStats.presentLike}
+                    totalSessions={modalCourseAttendanceStats.total}
+                  />
+                  {courseAttendanceRows.length === 0 ? (
+                    <p className="text-sm text-foreground/60">No attendance records for this course yet.</p>
+                  ) : (
+                    <div className="rounded-md border border-border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40">
+                            <th className="text-left py-2 px-3 font-medium">Date</th>
+                            <th className="text-left py-2 px-3 font-medium">Day</th>
+                            <th className="text-left py-2 px-3 font-medium">Status</th>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {courseAttendanceRows.map((row: any, idx: number) => {
+                            const dateStr = String(row.date || "")
+                            let dayLabel = "—"
+                            try {
+                              if (dateStr) dayLabel = weekdayName(parseRecordDate(dateStr))
+                            } catch {
+                              dayLabel = "—"
+                            }
+                            return (
+                              <tr key={`${row.date}-${idx}`} className="border-b border-border/60 last:border-0">
+                                <td className="py-2 px-3 text-foreground">{dateStr}</td>
+                                <td className="py-2 px-3 text-foreground/80">{dayLabel}</td>
+                                <td className="py-2 px-3 capitalize">{row.status || "—"}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
-            </div>
+            </TabsContent>
 
-            <div>
-              <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                <Award className="w-4 h-4" />
-                Assessment marks
-              </h4>
+            <TabsContent value="marks" className="mt-0 space-y-3 focus-visible:ring-0">
+              <p className="text-xs text-foreground/55">Assignments, quizzes, and course total.</p>
               {!selectedCourseGradeDetail || selectedCourseGradeDetail.assessments.length === 0 ? (
                 <p className="text-sm text-foreground/60">No marks uploaded for this course yet.</p>
               ) : (
@@ -1165,11 +1348,12 @@ export function StudentPortal({
                   </div>
                 </div>
               )}
-            </div>
+            </TabsContent>
+          </Tabs>
 
-            <Button type="button" variant="outline" className="w-full" onClick={() => setCourseDialogOpen(false)}>
-              Close
-            </Button>
+          <Button type="button" variant="outline" className="w-full" onClick={() => setCourseDialogOpen(false)}>
+            Close
+          </Button>
           </div>
         </DialogContent>
       </Dialog>

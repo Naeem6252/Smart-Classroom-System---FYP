@@ -5,6 +5,8 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "dev:stable": "npm run doctor && npm run dev",
+    "doctor": "node scripts/doctor.mjs",
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "next start",
     "db:generate": "drizzle-kit generate",

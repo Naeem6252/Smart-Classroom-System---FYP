@@ -112,13 +112,17 @@ export function FaceRecognitionCamera({
   // Face descriptors from face-api are compared by Euclidean distance (lower is better).
   // Use stricter threshold for new matches and slightly looser one for already-known students
   // to reduce known/unknown flicker on adjacent frames.
-  const FACE_DISTANCE_THRESHOLD = 0.62
-  const FACE_TRACKING_DISTANCE_THRESHOLD = 0.66
+  const FACE_DISTANCE_THRESHOLD = 0.56
   // Ambiguity guard: if top-2 matches are too close, treat as unknown.
-  const FACE_AMBIGUITY_MARGIN = 0.02
+  const FACE_AMBIGUITY_MARGIN = 0.035
   const MATCH_CONFIRMATION_FRAMES = 2
-  // Keep prop for backward compatibility (not used for match gating now).
-  void confidenceThreshold
+  const MIN_DISTANCE_THRESHOLD = 0.5
+  const MAX_DISTANCE_THRESHOLD = 0.62
+  const normalizedThreshold = Math.min(0.95, Math.max(0.4, typeof confidenceThreshold === "number" ? confidenceThreshold : 0.75))
+  const thresholdRatio = (normalizedThreshold - 0.4) / (0.95 - 0.4)
+  const EFFECTIVE_DISTANCE_THRESHOLD =
+    MAX_DISTANCE_THRESHOLD - thresholdRatio * (MAX_DISTANCE_THRESHOLD - MIN_DISTANCE_THRESHOLD)
+  const FACE_TRACKING_DISTANCE_THRESHOLD = Math.min(MAX_DISTANCE_THRESHOLD + 0.02, EFFECTIVE_DISTANCE_THRESHOLD + 0.04)
   const SCAN_INTERVAL_MS = typeof detectionIntervalMs === "number" ? detectionIntervalMs : 1800
 
   const rosterKey = useMemo(() => {
@@ -367,16 +371,18 @@ export function FaceRecognitionCamera({
               for (const s of studentDataset) {
                 if (!s.embedding || s.embedding.length !== desc.length) continue
                 const distance = euclideanDistance(desc, s.embedding)
-                const confidence = Math.max(0, Math.min(1, 1 - distance / FACE_DISTANCE_THRESHOLD))
+                const confidence = Math.max(0, Math.min(1, 1 - distance / MAX_DISTANCE_THRESHOLD))
                 candidates.push({ studentId: s.studentId, studentName: s.studentName, distance, confidence })
               }
               candidates.sort((a, b) => a.distance - b.distance)
               const best = candidates[0] ?? null
               const second = candidates[1] ?? null
-              const strictDistanceOk = Boolean(best && best.distance <= FACE_DISTANCE_THRESHOLD)
+              const strictDistanceOk = Boolean(best && best.distance <= EFFECTIVE_DISTANCE_THRESHOLD)
               const trackingDistanceOk = Boolean(best && best.distance <= FACE_TRACKING_DISTANCE_THRESHOLD)
               const clearlyBest = !second || second.distance - (best?.distance ?? 0) >= FACE_AMBIGUITY_MARGIN
-              const stickyAlreadyMarked = Boolean(best && alreadyMarkedIds.has(best.studentId) && trackingDistanceOk)
+              const stickyAlreadyMarked = Boolean(
+                best && alreadyMarkedIds.has(best.studentId) && trackingDistanceOk && clearlyBest,
+              )
               const matched = Boolean(best && (stickyAlreadyMarked || (strictDistanceOk && clearlyBest)))
 
               const box = det.detection.box
@@ -407,7 +413,7 @@ export function FaceRecognitionCamera({
           for (const s of studentDataset) {
             if (!s.embedding || s.embedding.length !== detected.length) continue
             const distance = euclideanDistance(detected, s.embedding)
-            const confidence = Math.max(0, Math.min(1, 1 - distance / FACE_DISTANCE_THRESHOLD))
+            const confidence = Math.max(0, Math.min(1, 1 - distance / MAX_DISTANCE_THRESHOLD))
             candidates.push({ studentId: s.studentId, studentName: s.studentName, distance, confidence })
           }
           candidates.sort((a, b) => a.distance - b.distance)
@@ -415,10 +421,10 @@ export function FaceRecognitionCamera({
           const second = candidates[1] ?? null
 
           if (!best) continue
-          const strictDistanceOk = best.distance <= FACE_DISTANCE_THRESHOLD
+          const strictDistanceOk = best.distance <= EFFECTIVE_DISTANCE_THRESHOLD
           const trackingDistanceOk = best.distance <= FACE_TRACKING_DISTANCE_THRESHOLD
           const clearlyBest = !second || second.distance - best.distance >= FACE_AMBIGUITY_MARGIN
-          const stickyAlreadyMarked = alreadyMarkedIds.has(best.studentId) && trackingDistanceOk
+          const stickyAlreadyMarked = alreadyMarkedIds.has(best.studentId) && trackingDistanceOk && clearlyBest
           if (!(stickyAlreadyMarked || (strictDistanceOk && clearlyBest))) continue
           candidatesSeenThisFrame.add(best.studentId)
           if (seenThisFrame.has(best.studentId)) continue
@@ -652,7 +658,7 @@ export function FaceRecognitionCamera({
           <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
             <p className="text-sm text-foreground/80">
               <span className="font-semibold">Live facial attendance</span> — boxes show each face; green means a
-              roster student was recognized and marked present automatically (≥70% match).
+              roster student was recognized and marked present automatically only after repeated high-confidence matches.
             </p>
           </div>
         )}

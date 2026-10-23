@@ -67,8 +67,6 @@ type FeeInvoice = {
     status: "pending" | "approved" | "rejected"
     verifiedAt?: string
   }>
-  category?: "tuition" | "disciplinary"
-  sourceIncidentId?: string
 }
 
 function euclideanDistance(a: number[], b: number[]) {
@@ -372,7 +370,7 @@ export function VapeDetectionMonitor() {
     }
   }
 
-  const createVapeFineInvoice = (student: MatchedStudent, incidentIso: string, incidentId: string): string | null => {
+  const createVapeFineInvoice = (student: MatchedStudent, incidentIso: string) => {
     try {
       const raw = localStorage.getItem("feeInvoices")
       const existing = raw ? (JSON.parse(raw) as FeeInvoice[]) : []
@@ -382,17 +380,15 @@ export function VapeDetectionMonitor() {
         if (String(inv.studentId) !== String(student.studentId)) return false
         if (String(inv.status) === "paid") return false
         const createdDay = String(inv.createdAt || "").slice(0, 10)
-        const sameTitle = String(inv.title || "").toLowerCase().includes("vape")
-        return createdDay === today && sameTitle
+        return createdDay === today && String(inv.title || "").toLowerCase().includes("vape")
       })
-      if (duplicate) return null
+      if (duplicate) return
 
-      const fineId = `fee-vape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
       const fineInvoice: FeeInvoice = {
-        id: fineId,
+        id: `fee-vape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         studentId: student.studentId,
         studentName: student.studentName,
-        title: "Vape policy violation challan",
+        title: "Vape policy violation fine",
         totalAmount: VAPE_FINE_AMOUNT,
         dueDate,
         status: "unpaid",
@@ -401,14 +397,10 @@ export function VapeDetectionMonitor() {
         balance: VAPE_FINE_AMOUNT,
         payments: [],
         paymentSubmissions: [],
-        category: "disciplinary",
-        sourceIncidentId: incidentId,
       }
       localStorage.setItem("feeInvoices", JSON.stringify([fineInvoice, ...existing].slice(0, 2000)))
-      return fineId
     } catch {
       // ignore fine creation errors
-      return null
     }
   }
 
@@ -492,22 +484,16 @@ export function VapeDetectionMonitor() {
       const newVapeEvent = Boolean(json.hasVape) && !priorHadVape
 
       if (json.hasVape && newVapeEvent) {
-        const incidentId = `vape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
         const matchedStudent = matchedHolderFromFrame ?? (await identifyVapeHolder(imageData))
         const who = matchedStudent
           ? ` — Student: ${matchedStudent.studentName} (${matchedStudent.studentId})`
           : " — Student: Unknown"
-        let fineInvoiceId = ""
-        if (matchedStudent) {
-          fineInvoiceId = createVapeFineInvoice(matchedStudent, new Date().toISOString(), incidentId) ?? ""
-        }
-        const challanNote = fineInvoiceId ? ` — Challan: ${fineInvoiceId}` : ""
-        const msg = `Vape detected (${json.vapeDetections ?? 1} object(s))${who}${challanNote}`
+        const msg = `Vape detected (${json.vapeDetections ?? 1} object(s))${who}`
         setAlerts((prev) => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, time: now, message: msg }, ...prev].slice(0, 200))
         try {
           const ts = new Date().toISOString()
           const incident = {
-            id: incidentId,
+            id: `vape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             type: "Vape Detection",
             location: "Vape monitor",
             severity: "high",
@@ -518,11 +504,12 @@ export function VapeDetectionMonitor() {
             studentId: matchedStudent?.studentId ?? "",
             studentName: matchedStudent?.studentName ?? "",
             studentConfidence: matchedStudent?.confidence ?? 0,
-            fineInvoiceId,
-            invoiceCategory: fineInvoiceId ? "disciplinary" : "",
           }
           const existing = JSON.parse(localStorage.getItem("behaviorAlerts") || "[]") as unknown[]
           localStorage.setItem("behaviorAlerts", JSON.stringify([...existing, incident].slice(-200)))
+          if (matchedStudent) {
+            createVapeFineInvoice(matchedStudent, ts)
+          }
         } catch {
           // ignore storage errors
         }

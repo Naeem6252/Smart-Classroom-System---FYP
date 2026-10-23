@@ -14,6 +14,7 @@ const MANAGED_KEYS = new Set([
   "currentClass",
   "currentUser",
   "loginTime",
+  "adminAuth",
 ])
 
 type SyncPayload = {

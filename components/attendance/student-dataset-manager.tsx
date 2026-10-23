@@ -64,7 +64,13 @@ const mergeAvailableStudents = (...studentLists: AvailableStudent[][]) => {
   return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function StudentDatasetManager() {
+export function StudentDatasetManager({
+  allowedStudentIds,
+  contextLabel,
+}: {
+  allowedStudentIds?: string[]
+  contextLabel?: string
+} = {}) {
   const [students, setStudents] = useState<StudentData[]>([])
   const [availableStudents, setAvailableStudents] = useState<AvailableStudent[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -95,6 +101,10 @@ export function StudentDatasetManager() {
   const [studentSearch, setStudentSearch] = useState("")
   const [selectedStudentOption, setSelectedStudentOption] = useState("")
   const [studentPickerOpen, setStudentPickerOpen] = useState(false)
+  const allowedSet = useMemo(() => {
+    if (!Array.isArray(allowedStudentIds) || allowedStudentIds.length === 0) return null
+    return new Set(allowedStudentIds.map(String))
+  }, [allowedStudentIds])
 
   // Load face-api models once
   useEffect(() => {
@@ -420,6 +430,21 @@ export function StudentDatasetManager() {
     [availableStudents, selectedStudentOption],
   )
 
+  const scopedAvailableStudents = useMemo(() => {
+    if (!allowedSet) return availableStudents
+    return availableStudents.filter((s) => allowedSet.has(String(s.id)))
+  }, [availableStudents, allowedSet])
+
+  const scopedFilteredStudents = useMemo(() => {
+    if (!allowedSet) return filteredStudents
+    return filteredStudents.filter((s) => allowedSet.has(String(s.id)))
+  }, [filteredStudents, allowedSet])
+
+  const scopedDatasetStudents = useMemo(() => {
+    if (!allowedSet) return students
+    return students.filter((s) => allowedSet.has(String(s.studentId)))
+  }, [students, allowedSet])
+
   const removeStudent = (studentId: string) => {
     const remove = async () => {
       try {
@@ -620,18 +645,55 @@ export function StudentDatasetManager() {
           {/* Add Single Student */}
           <div className="rounded-lg border border-border p-4 bg-card/50 space-y-3">
             <h4 className="font-medium text-foreground">Add Student (recommended)</h4>
+            {contextLabel ? (
+              <p className="text-xs text-foreground/60">
+                Scope: <span className="font-medium text-foreground">{contextLabel}</span>
+              </p>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input
-                placeholder="Search student by name, ID, or registration no"
-                value={studentSearch}
-                onChange={(e) => {
-                  setStudentSearch(e.target.value)
-                  if (!studentPickerOpen) setStudentPickerOpen(true)
-                }}
-                onFocus={() => {
-                  if (availableStudents.length > 0) setStudentPickerOpen(true)
-                }}
-              />
+              <div className="space-y-2">
+                <Input
+                  placeholder="Search student by name, ID, or registration no"
+                  value={studentSearch}
+                  onChange={(e) => {
+                    setStudentSearch(e.target.value)
+                    if (!studentPickerOpen) setStudentPickerOpen(true)
+                  }}
+                  onFocus={() => {
+                    if (availableStudents.length > 0) setStudentPickerOpen(true)
+                  }}
+                />
+                {studentSearch.trim() ? (
+                  <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-background">
+                    {scopedFilteredStudents.length > 0 ? (
+                      scopedFilteredStudents.slice(0, 8).map((s) => (
+                        <button
+                          key={`search-${s.id}`}
+                          type="button"
+                          className="flex w-full items-start justify-between gap-3 border-b border-border/50 px-3 py-2 text-left last:border-b-0 hover:bg-accent/40"
+                          onClick={() => {
+                            onPickStudent(s.id)
+                            setStudentSearch(`${s.name} ${s.id}`)
+                            setStudentPickerOpen(false)
+                          }}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-foreground">{s.name}</div>
+                            <div className="mt-1 text-xs text-foreground/60">
+                              ID: {s.id} • Reg: {s.rollNumber ?? "N/A"}
+                            </div>
+                          </div>
+                          {selectedStudentOption === s.id ? (
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          ) : null}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-foreground/60">No student matches your search.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <Popover open={studentPickerOpen} onOpenChange={setStudentPickerOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -654,13 +716,13 @@ export function StudentDatasetManager() {
                     <div className="border-b px-3 py-2">
                       <p className="text-sm font-medium text-foreground">Choose a student</p>
                       <p className="text-xs text-foreground/60">
-                        {filteredStudents.length} result{filteredStudents.length === 1 ? "" : "s"} shown
+                        {scopedFilteredStudents.length} result{scopedFilteredStudents.length === 1 ? "" : "s"} shown
                       </p>
                     </div>
                     <CommandList className="max-h-72">
                       <CommandEmpty>No student matches your search.</CommandEmpty>
                       <CommandGroup>
-                        {filteredStudents.map((s) => (
+                        {scopedFilteredStudents.map((s) => (
                           <CommandItem
                             key={s.id}
                             value={`${s.name} ${s.id} ${s.rollNumber ?? ""}`}
@@ -695,9 +757,9 @@ export function StudentDatasetManager() {
                 </PopoverContent>
               </Popover>
             </div>
-            {availableStudents.length === 0 ? (
+            {scopedAvailableStudents.length === 0 ? (
               <p className="text-xs text-foreground/60">
-                No students found in database. Add/import students first, then select from dropdown.
+                No students found in this scope. Adjust class/section or add students first.
               </p>
             ) : null}
             {form.studentId ? (
@@ -761,21 +823,21 @@ export function StudentDatasetManager() {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-accent/10 p-4 rounded-lg">
               <div className="text-sm text-foreground/60">Total Students</div>
-              <div className="text-2xl font-bold text-primary">{students.length}</div>
+              <div className="text-2xl font-bold text-primary">{scopedDatasetStudents.length}</div>
             </div>
             <div className="bg-accent/10 p-4 rounded-lg">
               <div className="text-sm text-foreground/60">Storage Used</div>
               <div className="text-2xl font-bold text-primary">
-                {(students.length * 0.5).toFixed(1)} MB
+                {(scopedDatasetStudents.length * 0.5).toFixed(1)} MB
               </div>
             </div>
           </div>
 
           {/* Student List */}
-          {students.length > 0 && (
+          {scopedDatasetStudents.length > 0 && (
             <div className="space-y-2 max-h-96 overflow-y-auto">
               <h4 className="font-medium text-foreground/80">Enrolled Students</h4>
-              {students.map((student) => (
+              {scopedDatasetStudents.map((student) => (
                 <div
                   key={student.studentId}
                   className="flex items-center justify-between gap-3 bg-background/50 p-3 rounded border border-border/50 hover:border-primary/50 transition-colors"

@@ -16,14 +16,9 @@ function parseBase64Image(dataUrl: string) {
   return { buffer: Buffer.from(base64, "base64"), ext }
 }
 
-function runPythonInference(imagePath: string, confidence: number) {
-  return new Promise<{ ok: boolean; [k: string]: any }>((resolve, reject) => {
-    const scriptPath = path.join(process.cwd(), "vape_detector", "infer_image.py")
-    const proc = spawn("python", [scriptPath, imagePath, String(confidence)], {
-      cwd: path.dirname(scriptPath),
-      windowsHide: true,
-    })
-
+function runPythonInferenceWithCommand(command: string, args: string[]) {
+  return new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const proc = spawn(command, args, { windowsHide: true })
     let stdout = ""
     let stderr = ""
 
@@ -36,17 +31,62 @@ function runPythonInference(imagePath: string, confidence: number) {
 
     proc.on("error", reject)
     proc.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `Python inference failed with code ${code}`))
-        return
-      }
-      try {
-        const parsed = JSON.parse(stdout.trim())
-        resolve(parsed)
-      } catch {
-        reject(new Error(`Invalid JSON from python inference. Raw: ${stdout.slice(0, 300)}`))
-      }
+      resolve({ code: code ?? -1, stdout, stderr })
     })
+  })
+}
+
+function looksLikeMissingPython(message: string) {
+  const text = message.toLowerCase()
+  return (
+    text.includes("python was not found") ||
+    text.includes("app execution aliases") ||
+    text.includes("not recognized as an internal or external command") ||
+    text.includes("enoent")
+  )
+}
+
+function runPythonInference(imagePath: string, confidence: number) {
+  return new Promise<{ ok: boolean; [k: string]: any }>((resolve, reject) => {
+    const scriptPath = path.join(process.cwd(), "vape_detector", "infer_image.py")
+    const scriptArgs = [scriptPath, imagePath, String(confidence)]
+
+    const commands =
+      process.platform === "win32"
+        ? [
+            { cmd: "py", args: ["-3", ...scriptArgs] },
+            { cmd: "python", args: scriptArgs },
+          ]
+        : [{ cmd: "python3", args: scriptArgs }, { cmd: "python", args: scriptArgs }]
+
+    ;(async () => {
+      let lastError = ""
+      for (const candidate of commands) {
+        try {
+          const res = await runPythonInferenceWithCommand(candidate.cmd, candidate.args)
+          if (res.code !== 0) {
+            const msg = (res.stderr || res.stdout || "").trim()
+            lastError = msg || `Python inference failed with code ${res.code}`
+            if (looksLikeMissingPython(lastError)) continue
+            reject(new Error(lastError))
+            return
+          }
+          const parsed = JSON.parse(res.stdout.trim())
+          resolve(parsed)
+          return
+        } catch (e: any) {
+          lastError = e?.message || String(e)
+          if (looksLikeMissingPython(lastError)) continue
+          reject(new Error(lastError))
+          return
+        }
+      }
+      reject(
+        new Error(
+          "Python runtime not available. Install Python 3 (and pip packages), then restart the app.",
+        ),
+      )
+    })().catch((e) => reject(e))
   })
 }
 

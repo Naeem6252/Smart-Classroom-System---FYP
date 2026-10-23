@@ -24,7 +24,6 @@ export function StudentFacialScanner() {
   const [cameraStarting, setCameraStarting] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
-  const [attendanceMarked, setAttendanceMarked] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [studentDataset, setStudentDataset] = useState<any[]>([])
   const [modelsReady, setModelsReady] = useState(false)
@@ -133,7 +132,6 @@ export function StudentFacialScanner() {
         audio: false,
       })
       streamRef.current = stream
-      setAttendanceMarked(false)
       setCameraActive(true)
     } catch (err) {
       console.error("[v0] Camera error:", err)
@@ -268,10 +266,9 @@ export function StudentFacialScanner() {
           studentId: best.student.studentId,
           studentName: best.student.studentName,
           confidence: Math.round(best.confidence * 100),
-          message: `Face recognized! Welcome ${best.student.studentName}`,
+          message: `Face recognized! Dataset verification successful for ${best.student.studentName}.`,
         }
         setScanResult(result)
-        markAttendanceFromScan(best.student.studentId, best.student.studentName, best.confidence)
       } else {
         const result: ScanResult = {
           matched: false,
@@ -292,82 +289,6 @@ export function StudentFacialScanner() {
     }
   }
 
-  const markAttendanceFromScan = async (studentId: string, studentName: string, confidence: number) => {
-    try {
-      // Get current student's enrolled classes
-      const adminData = localStorage.getItem('adminData')
-      if (!adminData) return
-
-      const data = JSON.parse(adminData)
-      const student = data.students?.find((s: any) => s.id === currentUserId)
-      if (!student) return
-
-      const enrolledClassIds = student.classIds || []
-      if (enrolledClassIds.length === 0) return
-
-      // Mark attendance for all enrolled classes for today
-      const today = new Date().toISOString().split('T')[0]
-      const existingRecords = JSON.parse(localStorage.getItem('attendanceRecords') || '[]')
-
-      // Only add attendance if not already marked today
-      const enrolledClassIds_set = new Set(enrolledClassIds)
-      const alreadyMarked = new Set(
-        existingRecords
-          .filter((r: any) => r.studentId === currentUserId && r.date === today && r.classId)
-          .map((r: any) => r.classId)
-      )
-
-      const newRecords = []
-      for (const classId of enrolledClassIds) {
-        if (!alreadyMarked.has(classId)) {
-          newRecords.push({
-            studentId: currentUserId,
-            classId: classId,
-            date: today,
-            status: 'present',
-            method: 'face_recognition',
-            markedAt: new Date().toISOString(),
-            timestamp: new Date().toISOString(),
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            confidence: confidence,
-            studentName: studentName,
-          })
-        }
-      }
-
-      if (newRecords.length > 0) {
-        // Persist to DB (source of truth)
-        await Promise.all(
-          newRecords.map((r) =>
-            fetch("/api/attendance/mark", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                studentId: r.studentId,
-                classId: r.classId,
-                date: r.date,
-                status: "present",
-                method: "face_recognition",
-                markedAt: r.markedAt,
-                confidence: r.confidence,
-              }),
-            }).catch(() => null),
-          ),
-        )
-
-        // Keep localStorage in sync for portals/UI
-        const updatedRecords = [...existingRecords, ...newRecords]
-        localStorage.setItem('attendanceRecords', JSON.stringify(updatedRecords))
-        setAttendanceMarked(true)
-        console.log('[v0] Marked attendance for', newRecords.length, 'classes via facial recognition')
-      } else {
-        console.log('[v0] Attendance already marked for today')
-      }
-    } catch (err) {
-      console.error('[v0] Error marking attendance:', err)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <Card className="p-6 bg-card border-border">
@@ -381,7 +302,7 @@ export function StudentFacialScanner() {
             <p className="text-sm text-foreground/80">
               <span className="font-medium text-foreground">How it works:</span> Start camera → live preview appears →
               tap <span className="font-medium">Scan Face</span> → you will see whether you match your record in the
-              database and attendance can be marked if you are recognized.
+              dataset. This check does not mark attendance.
             </p>
             {scanResult && !cameraActive ? (
               <Card className="p-4 border-destructive/30 bg-destructive/5">
@@ -440,11 +361,6 @@ export function StudentFacialScanner() {
                       <p className={`text-sm mt-2 ${scanResult.matched ? 'text-green-700' : 'text-red-700'}`}>
                         Confidence: {scanResult.confidence}%
                       </p>
-                    )}
-                    {attendanceMarked && scanResult.matched && (
-                      <Badge className="mt-3 bg-green-600 text-white">
-                        ✓ Attendance Marked for All Classes
-                      </Badge>
                     )}
                   </div>
                 </div>

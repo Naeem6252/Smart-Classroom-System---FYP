@@ -3,11 +3,13 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
+import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Shield, GraduationCap, Eye, EyeOff, Lock, User, Building2, Users } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Shield, GraduationCap, Eye, EyeOff, Lock, User, Building2, Users, Moon, Sun } from "lucide-react"
 
 type LoginRole = "admin" | "teacher" | "student"
 
@@ -16,6 +18,7 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
+  const { resolvedTheme, setTheme } = useTheme()
   const [selectedRole, setSelectedRole] = useState<LoginRole | null>(null)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -24,6 +27,27 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [error, setError] = useState("")
   const [showRoleCards, setShowRoleCards] = useState(false)
   const [showLoginForm, setShowLoginForm] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  const getAdminAuth = () => {
+    const fallback = { email: "admin@campus.edu", password: "admin123", name: "admin" }
+    try {
+      const raw = localStorage.getItem("adminAuth")
+      if (!raw) return fallback
+      const parsed = JSON.parse(raw) as { email?: string; password?: string; name?: string }
+      return {
+        email: typeof parsed.email === "string" && parsed.email.trim() ? parsed.email : fallback.email,
+        password: typeof parsed.password === "string" && parsed.password.trim() ? parsed.password : fallback.password,
+        name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name : fallback.name,
+      }
+    } catch {
+      return fallback
+    }
+  }
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (!selectedRole) {
@@ -52,11 +76,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
     // Demo credentials check
     if (selectedRole === "admin") {
-      if (email === "admin@campus.edu" && password === "admin123") {
-        localStorage.setItem('currentUser', JSON.stringify({ role: 'admin', email }))
+      const adminAuth = getAdminAuth()
+      if (email.toLowerCase() === adminAuth.email.toLowerCase() && password === adminAuth.password) {
+        localStorage.setItem('currentUser', JSON.stringify({ role: 'admin', email: adminAuth.email, name: adminAuth.name }))
         onLogin("admin")
       } else {
-        setError("Invalid admin credentials. Try: admin@campus.edu / admin123")
+        setError("Invalid admin credentials.")
       }
     } else if (selectedRole === "teacher") {
       const adminData = localStorage.getItem('adminData')
@@ -110,6 +135,17 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   if (!selectedRole) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
+        <div className="fixed right-4 top-4 z-10">
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 backdrop-blur-2xl">
+            <Sun className="h-4 w-4 text-foreground/60" />
+            <Switch
+              aria-label="Toggle dark mode"
+              checked={mounted ? resolvedTheme === "dark" : false}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+            />
+            <Moon className="h-4 w-4 text-foreground/60" />
+          </div>
+        </div>
         <div className="w-full max-w-md space-y-8">
           {/* Logo and Title */}
           <div className="text-center space-y-2">
@@ -209,6 +245,17 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   // Login form screen
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
+      <div className="fixed right-4 top-4 z-10">
+        <div className="flex items-center gap-2 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 backdrop-blur-2xl">
+          <Sun className="h-4 w-4 text-foreground/60" />
+          <Switch
+            aria-label="Toggle dark mode"
+            checked={mounted ? resolvedTheme === "dark" : false}
+            onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+          />
+          <Moon className="h-4 w-4 text-foreground/60" />
+        </div>
+      </div>
       <div
         className={`w-full max-w-md space-y-6 transition-all duration-300 ease-out ${
           showLoginForm ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
@@ -309,38 +356,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </CardContent>
         </Card>
 
-        {/* Demo Credentials */}
-        <Card className="bg-muted/50 border-dashed">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground text-center mb-2">Demo Credentials</p>
-            <div className="text-xs text-center space-y-1">
-              {selectedRole === "admin" ? (
-                <p>
-                  <span className="font-medium">Admin:</span> admin@campus.edu / admin123
-                </p>
-              ) : selectedRole === "teacher" ? (
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-medium">Teachers:</span> Use faculty email and password
-                  </p>
-                  <p className="text-muted-foreground">
-                    <span className="font-medium">Default Password:</span> teacher123
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-medium">Students:</span> Use email and password<br />
-                    <span className="text-muted-foreground">added by admin</span>
-                  </p>
-                  <p className="text-muted-foreground">
-                    <span className="font-medium">Default Password:</span> student123
-                  </p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

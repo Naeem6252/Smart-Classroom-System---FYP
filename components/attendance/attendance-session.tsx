@@ -15,10 +15,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { FaceRecognitionCamera } from "./face-recognition-camera"
+import { ClassPhotoAttendance } from "./class-photo-attendance"
 import { AttendanceMarking } from "./attendance-marking"
 import { TimerDisplay } from "./timer-display"
-import { CheckCircle, Settings, Video } from "lucide-react"
+import { CheckCircle, Image as ImageIcon, Settings, Video } from "lucide-react"
 import {
+  ATTENDANCE_SETTINGS_EVENT,
   DEFAULT_ATTENDANCE_SETTINGS,
   loadAttendanceSettings,
   saveAttendanceSettings,
@@ -29,6 +31,7 @@ interface AttendanceSessionProps {
   classId: string
   className: string
   startTime: Date
+  initialTab?: "live" | "photo" | "roster"
 }
 
 interface MarkedStudent {
@@ -46,27 +49,36 @@ interface Student {
   status: "present" | "absent" | "late" | "unmarked"
 }
 
-export function AttendanceSession({ classId, className, startTime }: AttendanceSessionProps) {
+export function AttendanceSession({ classId, className, startTime, initialTab = "live" }: AttendanceSessionProps) {
   const [markedStudents, setMarkedStudents] = useState<MarkedStudent[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const rosterStudentIds = useMemo(() => [...students].map((s) => s.id).sort().join("\0"), [students])
   const enrolledIdsForCamera = useMemo(() => students.map((s) => s.id), [rosterStudentIds])
   const [sessionActive, setSessionActive] = useState(true)
   const [timeRemaining, setTimeRemaining] = useState(10 * 60) // 10 minutes in seconds
-  const [activeTab, setActiveTab] = useState<"live" | "roster">("live")
+  const [activeTab, setActiveTab] = useState<"live" | "photo" | "roster">(initialTab)
   const [isSaving, setIsSaving] = useState(false)
   const [sessionSaved, setSessionSaved] = useState(false)
   const [pythonStatus, setPythonStatus] = useState<"idle" | "starting" | "running" | "error">("idle")
   const [pythonError, setPythonError] = useState<string>("")
   const [settings, setSettings] = useState<AttendanceSettings>(DEFAULT_ATTENDANCE_SETTINGS)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSavedMessage, setSettingsSavedMessage] = useState("")
 
   useEffect(() => {
     setSettings(loadAttendanceSettings())
     const onStorage = (e: StorageEvent) => {
       if (e.key === "attendanceSettings") setSettings(loadAttendanceSettings())
     }
+    const onSettingsUpdated = () => {
+      setSettings(loadAttendanceSettings())
+    }
     window.addEventListener("storage", onStorage)
-    return () => window.removeEventListener("storage", onStorage)
+    window.addEventListener(ATTENDANCE_SETTINGS_EVENT, onSettingsUpdated)
+    return () => {
+      window.removeEventListener("storage", onStorage)
+      window.removeEventListener(ATTENDANCE_SETTINGS_EVENT, onSettingsUpdated)
+    }
   }, [])
 
   // Start/stop the Python attendance program when session opens/closes.
@@ -252,8 +264,13 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
   const autoEndSession = async () => {
     setIsSaving(true)
     try {
+      const finalizedStudents = students.map((s) =>
+        s.status === "unmarked" ? { ...s, status: "absent" as const } : s,
+      )
+      setStudents(finalizedStudents)
+
       // Save to localStorage first
-      const savedLocally = saveAttendanceToLocalStorage()
+      const savedLocally = saveAttendanceToLocalStorage(finalizedStudents)
       
       // Then send to API for logging
       const response = await fetch("/api/attendance/save-session", {
@@ -265,7 +282,7 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
           startTime,
           endTime: new Date(),
           markedStudents,
-          allStudents: students,
+          allStudents: finalizedStudents,
           autoSubmitted: true,
         }),
       })
@@ -281,14 +298,14 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
     }
   }
 
-  const saveAttendanceToLocalStorage = () => {
+  const saveAttendanceToLocalStorage = (studentsSnapshot: Student[] = students) => {
     try {
       const today = new Date().toISOString().split('T')[0]
       
       // Get present students
-      const presentStudents = students.filter(s => s.status === 'present')
-      const absentStudents = students.filter(s => s.status === 'absent')
-      const lateStudents = students.filter(s => s.status === 'late')
+      const presentStudents = studentsSnapshot.filter(s => s.status === 'present')
+      const absentStudents = studentsSnapshot.filter(s => s.status === 'absent')
+      const lateStudents = studentsSnapshot.filter(s => s.status === 'late')
       
       const markedById = new Map(markedStudents.map((m) => [m.id, m]))
       const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -362,8 +379,13 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
   const endSession = async () => {
     setIsSaving(true)
     try {
+      const finalizedStudents = students.map((s) =>
+        s.status === "unmarked" ? { ...s, status: "absent" as const } : s,
+      )
+      setStudents(finalizedStudents)
+
       // Save to localStorage first
-      const savedLocally = saveAttendanceToLocalStorage()
+      const savedLocally = saveAttendanceToLocalStorage(finalizedStudents)
       
       // Then send to API for logging
       const response = await fetch("/api/attendance/save-session", {
@@ -375,7 +397,7 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
           startTime,
           endTime: new Date(),
           markedStudents,
-          allStudents: students,
+          allStudents: finalizedStudents,
           autoSubmitted: false,
         }),
       })
@@ -440,7 +462,7 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
             </div>
             <p className="text-xs text-foreground/60">Time Remaining</p>
             <div className="flex justify-end">
-              <Dialog>
+              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <DialogTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="gap-2 bg-transparent">
                     <Settings className="w-4 h-4" />
@@ -514,8 +536,9 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
                       type="button"
                       onClick={() => {
                         saveAttendanceSettings(settings)
-                        // Broadcast for same-tab listeners (storage doesn't fire in same tab).
-                        window.dispatchEvent(new StorageEvent("storage", { key: "attendanceSettings" }))
+                        setSettingsSavedMessage("Settings saved.")
+                        setSettingsOpen(false)
+                        window.setTimeout(() => setSettingsSavedMessage(""), 2500)
                       }}
                     >
                       Save settings
@@ -536,6 +559,15 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
           >
             <Video className="w-4 h-4" />
             Live facial attendance
+          </Button>
+          <Button
+            onClick={() => setActiveTab("photo")}
+            variant={activeTab === "photo" ? "default" : "outline"}
+            size="sm"
+            className="gap-2"
+          >
+            <ImageIcon className="w-4 h-4" />
+            Class photo attendance
           </Button>
           <Button onClick={() => setActiveTab("roster")} variant={activeTab === "roster" ? "default" : "outline"} size="sm" className="gap-2">
             <CheckCircle className="w-4 h-4" />
@@ -577,6 +609,16 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
           onStatusChange={handleManualStatusChange}
           sessionActive={sessionActive}
           timeRemaining={timeRemaining}
+        />
+      )}
+
+      {activeTab === "photo" && (
+        <ClassPhotoAttendance
+          classId={classId}
+          sessionActive={sessionActive}
+          enrolledStudentIds={enrolledIdsForCamera}
+          confidenceThreshold={settings.confidenceThreshold}
+          onAttendanceMarked={handleAttendanceMarked}
         />
       )}
 
@@ -645,6 +687,12 @@ export function AttendanceSession({ classId, className, startTime }: AttendanceS
           </p>
         </Card>
       )}
+
+      {settingsSavedMessage ? (
+        <Card className="p-4 bg-primary/5 border border-primary/20">
+          <p className="text-sm text-primary font-medium">{settingsSavedMessage}</p>
+        </Card>
+      ) : null}
 
       {/* End Session Button */}
       <Button onClick={endSession} disabled={!sessionActive || isSaving} size="lg" className="w-full">
